@@ -28,7 +28,7 @@ function ResizeIcon() {
   )
 }
 
-function EditableText({ nodeId, text, onChange, readOnly }) {
+function EditableText({ nodeId, text, onChange, onFocus, readOnly }) {
   const ref = useRef(null)
 
   useEffect(() => {
@@ -42,12 +42,13 @@ function EditableText({ nodeId, text, onChange, readOnly }) {
       suppressContentEditableWarning
       spellCheck={false}
       className={`outline-none text-sm leading-tight text-center whitespace-pre-wrap break-words w-full flex items-center justify-center min-h-[20px] ${readOnly ? 'cursor-default select-none' : 'cursor-text select-text'}`}
+      onFocus={readOnly ? undefined : () => onFocus(nodeId)}
       onInput={readOnly ? undefined : e => onChange(nodeId, e.currentTarget.innerText.trim())}
     />
   )
 }
 
-export default function Node({ node, edges, nodes, nodeRef, onDelete, onSpawn, onTextChange, onDragStart, onResizeStart, readOnly }) {
+export default function Node({ node, edges, nodes, nodeRef, onDelete, onSpawn, onTextChange, onTextFocus, onDragStart, onResizeStart, readOnly }) {
   const incomingEdge = edges.find(e => e.from === node.id)
   const edgeLabel = incomingEdge
     ? (incomingEdge.type === 'objection' ? 'But' : 'Because')
@@ -90,7 +91,6 @@ export default function Node({ node, edges, nodes, nodeRef, onDelete, onSpawn, o
         {num}
       </div>
 
-      {/* delete — owner only */}
       {!readOnly && (
         <button
           className="absolute -top-4 -right-5 hidden group-hover:flex h-9 w-9 items-center
@@ -107,10 +107,10 @@ export default function Node({ node, edges, nodes, nodeRef, onDelete, onSpawn, o
         nodeId={node.id}
         text={node.text}
         onChange={onTextChange}
+        onFocus={onTextFocus}
         readOnly={readOnly}
       />
 
-      {/* spawn buttons — owner only */}
       {!readOnly && (
         <div className="absolute left-1/2 -bottom-7 -translate-x-1/2 hidden group-hover:flex gap-2 z-40">
           <button
@@ -132,7 +132,6 @@ export default function Node({ node, edges, nodes, nodeRef, onDelete, onSpawn, o
         </div>
       )}
 
-      {/* resize — owner only */}
       {!readOnly && (
         <div
           className="absolute right-2 bottom-2 h-5 w-5 cursor-nwse-resize opacity-0
