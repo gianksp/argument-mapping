@@ -1,14 +1,21 @@
 const EDGE_COLORS = {
-  reason:    '#22c55e',
-  rebuttal:  '#22c55e',
+  reason: '#22c55e',
+  rebuttal: '#22c55e',
   objection: '#ef4444',
 };
+
+const OFFSET = 3000 // enough room for nodes in negative space
 
 export default function Edges({ edges, nodes, nodeRects }) {
   return (
     <svg
-      className="absolute left-0 top-0 pointer-events-none"
-      style={{ width: 6000, height: 6000 }}
+      className="absolute pointer-events-none"
+      style={{
+        left: -OFFSET,
+        top: -OFFSET,
+        width: 20000,
+        height: 10000,
+      }}
     >
       <defs>
         {['reason', 'rebuttal', 'objection'].map(t => (
@@ -25,18 +32,19 @@ export default function Edges({ edges, nodes, nodeRects }) {
       </defs>
 
       {edges.map((edge, i) => {
-        const from = nodes.find(n => n.id === edge.from);
-        const to   = nodes.find(n => n.id === edge.to);
-        if (!from || !to) return null;
+        const from = nodes.find(n => n.id === edge.from)
+        const to = nodes.find(n => n.id === edge.to)
+        if (!from || !to) return null
 
-        const toRect   = nodeRects[to.id]   || { w: to.w   || 288, h: to.h   || 58 };
-        const fromRect = nodeRects[from.id] || { w: from.w || 288, h: from.h || 58 };
+        const toRect = nodeRects[to.id] || { w: to.w || 288, h: to.h || 58 }
+        const fromRect = nodeRects[from.id] || { w: from.w || 288, h: from.h || 58 }
 
-        const x1 = to.x   + toRect.w   / 2;
-        const y1 = to.y   + toRect.h;
-        const x2 = from.x + fromRect.w / 2;
-        const y2 = from.y;
-        const mid = (y1 + y2) / 2;
+        // offset all coordinates by OFFSET to shift into positive SVG space
+        const x1 = to.x + toRect.w / 2 + OFFSET
+        const y1 = to.y + toRect.h + OFFSET
+        const x2 = from.x + fromRect.w / 2 + OFFSET
+        const y2 = from.y + OFFSET
+        const mid = (y1 + y2) / 2
 
         return (
           <path
@@ -47,8 +55,8 @@ export default function Edges({ edges, nodes, nodeRects }) {
             strokeWidth="1.8"
             markerEnd={`url(#arrow-${edge.type})`}
           />
-        );
+        )
       })}
     </svg>
-  );
+  )
 }

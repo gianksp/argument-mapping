@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { loadMap, saveMap, createMap, makeDefaultGraph } from './store.js'
+import { saveMap, createMap, makeDefaultGraph } from './store.js'
 import { screenToWorld, getDescendants, computeAutoLayout } from './utils/utils.js'
 import { useAuth } from './AuthContext.jsx'
 import { supabase } from './supabase.js'
@@ -31,6 +31,30 @@ export default function App({ mapId }) {
   const saveTimer = useRef(null)
   const graphRef = useRef(null)
 
+  // ── fit to screen ──────────────────────────────────────────────────────────
+  const fitToScreen = useCallback((nodes) => {
+    if (!nodes?.length || !viewportRef.current) return
+    const vp = viewportRef.current.getBoundingClientRect()
+
+    const minX = Math.min(...nodes.map(n => n.x))
+    const minY = Math.min(...nodes.map(n => n.y))
+    const maxX = Math.max(...nodes.map(n => n.x + (n.w || 288)))
+    const maxY = Math.max(...nodes.map(n => n.y + (n.h || 58)))
+
+    const contentW = maxX - minX
+    const contentH = maxY - minY
+    const padding = 80
+
+    const scaleX = (vp.width - padding * 2) / contentW
+    const scaleY = (vp.height - padding * 2) / contentH
+    const scale = Math.min(scaleX, scaleY, 1.5)
+
+    const x = (vp.width - contentW * scale) / 2 - minX * scale
+    const y = (vp.height - contentH * scale) / 2 - minY * scale
+
+    setView({ x, y, scale })
+  }, [])
+
   // ── wait for session ───────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(() => setReady(true))
@@ -46,11 +70,14 @@ export default function App({ mapId }) {
           setGraph(data.data)
           setOwnerId(data.user_id)
           setStatus('ready')
+          setTimeout(() => fitToScreen(data.data.nodes), 50)
         })
     } else {
-      setGraph(makeDefaultGraph())
+      const g = makeDefaultGraph()
+      setGraph(g)
       setOwnerId(user?.id ?? null)
       setStatus('ready')
+      setTimeout(() => fitToScreen(g.nodes), 50)
     }
   }, [ready, mapId])
 
@@ -186,6 +213,7 @@ export default function App({ mapId }) {
       imported.nodes = imported.nodes || []
       imported.edges = imported.edges || []
       setGraph(imported)
+      setTimeout(() => fitToScreen(imported.nodes), 50)
     }
     reader.readAsText(file)
   }
@@ -242,24 +270,32 @@ export default function App({ mapId }) {
     return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
   }, [view])
 
-  const handleWheel = useCallback(e => {
-    e.preventDefault()
-    const vp = viewportRef.current.getBoundingClientRect()
-    setView(v => {
-      const oldScale = v.scale
-      const nextScale = Math.min(2.5, Math.max(0.25, oldScale * (1 - e.deltaY * 0.001)))
-      const mx = e.clientX - vp.left, my = e.clientY - vp.top
-      const wx = (mx - v.x) / oldScale, wy = (my - v.y) / oldScale
-      return { scale: nextScale, x: mx - wx * nextScale, y: my - wy * nextScale }
-    })
-  }, [])
-
+  // ── wheel zoom — attached directly, no stale closure ──────────────────────
   useEffect(() => {
-    const el = viewportRef.current; if (!el) return
-    el.addEventListener('wheel', handleWheel, { passive: false })
-    return () => el.removeEventListener('wheel', handleWheel)
-  }, [handleWheel])
+    const el = viewportRef.current
+    if (!el) return
 
+    const onWheel = (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const vp = el.getBoundingClientRect()
+      const delta = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaY
+      setView(v => {
+        const oldScale = v.scale
+        const nextScale = Math.min(3, Math.max(0.05, oldScale * (1 - delta * 0.001)))
+        const mx = e.clientX - vp.left
+        const my = e.clientY - vp.top
+        const wx = (mx - v.x) / oldScale
+        const wy = (my - v.y) / oldScale
+        return { scale: nextScale, x: mx - wx * nextScale, y: my - wy * nextScale }
+      })
+    }
+
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [ready]) // only re-attach when ready, not on every view change
+
+  // ── context menu ───────────────────────────────────────────────────────────
   const handleContextMenu = useCallback(e => {
     e.preventDefault()
     const vp = viewportRef.current.getBoundingClientRect()
@@ -310,6 +346,7 @@ export default function App({ mapId }) {
               <button onClick={exportJSON} className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-100">Export</button>
             </>
           )}
+          <button onClick={() => fitToScreen(graph.nodes)} className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-100">Fit</button>
           <button onClick={copyShareURL} className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-700">Copy share URL</button>
           {user && <button onClick={signOut} className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-100">Sign out</button>}
           <input ref={fileInputRef} type="file" accept=".json" hidden onChange={importJSON} />
@@ -321,6 +358,19 @@ export default function App({ mapId }) {
         className="relative flex-1 overflow-hidden bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:24px_24px]"
         onMouseDown={handleViewportMouseDown}
         onContextMenu={isOwner ? handleContextMenu : undefined}
+        onWheel={e => {
+          const vp = viewportRef.current.getBoundingClientRect()
+          const delta = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaY
+          setView(v => {
+            const oldScale = v.scale
+            const nextScale = Math.min(3, Math.max(0.05, oldScale * (1 - delta * 0.001)))
+            const mx = e.clientX - vp.left
+            const my = e.clientY - vp.top
+            const wx = (mx - v.x) / oldScale
+            const wy = (my - v.y) / oldScale
+            return { scale: nextScale, x: mx - wx * nextScale, y: my - wy * nextScale }
+          })
+        }}
       >
         <div
           className="absolute left-0 top-0 origin-top-left"
@@ -332,7 +382,6 @@ export default function App({ mapId }) {
               <Node
                 key={node.id}
                 node={node}
-                readOnly={!isOwner}
                 edges={graph.edges}
                 nodes={graph.nodes}
                 nodeRef={el => { if (el) nodeElsRef.current[node.id] = el }}
@@ -348,6 +397,7 @@ export default function App({ mapId }) {
                   drag.current = { nodeId: node.id, offsetX: pt.x - node.x, offsetY: pt.y - node.y }
                 }}
                 onResizeStart={isOwner ? handleResizeStart : () => { }}
+                readOnly={!isOwner}
               />
             ))}
           </div>
